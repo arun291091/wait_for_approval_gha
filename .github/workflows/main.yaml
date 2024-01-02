@@ -1,0 +1,36 @@
+# Copyright (c) Arunkumar Krishnakumar
+# 
+
+
+name: wait_for_approval
+
+on:
+  workflow_dispatch:
+    inputs:
+      Manual_run:
+        description: type yes for manual run
+        required: false
+        type: string
+
+
+
+jobs:
+  wait_for_approval:
+    runs-on: ubuntu-latest
+    name: wait_for_approval
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Wait_for_approval Action
+        uses: ./
+        with:
+          base_repository_branch: main
+          github_org: arun291091
+          repository_name: wait_for_approval
+          pr_reviewer: arun291091
+          time_limit: 1800
+          github_token: ${{ secrets.CI_TOKEN }}
+
+
+          

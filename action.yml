@@ -1,0 +1,170 @@
+#### Add a wait for Approval stage to your GitHub Action workflow ##############
+# Copyright (c) Arunkumar Krishnakumar
+
+name: 'Wait For Approval'
+description: 'Add a wait for Approval stage to your GitHub Action workflow'
+branding:
+  icon: 'chevron-up'
+  color: 'orange'
+
+inputs:
+  base_repository_branch:
+    description: default/base repository branch <main or master>
+    required: true
+
+  github_org:
+    description: 'Name of the Github organization <org>'
+    required: true
+        
+  repository_name:
+    description: 'Name of the Repository <test-repo>'
+    required: true
+        
+  pr_reviewer:
+    description: 'Reviewer for this approval <org/sre or individual user>'
+    required: true
+
+  time_limit:
+    description: 'Wait time limit for the approval in Seconds'
+    required: true
+
+  github_token:
+    description: 'Github token with pr/branch creation/merge permissions'
+    required: true
+             
+outputs: 
+  date:
+    description: "Date"
+    value: ${{ steps.date.outputs.DATE }} 
+
+runs:
+    using: 'composite'
+    steps:
+
+  # # # # # #  # Check if needed for Prod # # # # # # # # #
+
+      - name: Set up GitHub CLI
+        uses: actions/checkout@v2
+
+
+      - name: Install GitHub CLI
+        shell: bash
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install gh gcc -y
+          gh config set prompt disabled
+
+      - name: Authenticate GitHub CLI
+        shell: bash
+        run: |
+         gh config set prompt disabled
+         echo "${{ inputs.github_token }}" | gh auth login --with-token 
+
+          
+      - name: set date
+        shell: bash
+        id: date
+        run: |
+           echo "DATE=$(date --rfc-3339=seconds)" >> $GITHUB_OUTPUT
+           echo "$DATE"
+
+
+  # # # # # #  # Create a branch and do a dummy commit # # # # # # # # #
+
+
+      - name: Create Branch
+        shell: bash
+        id: create_br 
+        env:
+          CONTENT:  "Github-Workflow-run:${{ github.run_number }} | on:${{ steps.date.outputs.DATE }} | user_initiated:${{ github.triggering_actor }}"   
+          REPO: ${{ github.event.inputs.org }}/${{ github.event.inputs.repository_name }}  
+
+        run: |
+
+          # Generate a unique branch name based on the current timestamp
+          branch_name="feature/${{ github.run_id }}"
+          echo "$branch_name" 
+      
+          # Create the branch using the GitHub API
+          curl -X POST -H "Authorization: Bearer ${{ inputs.github_token }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/${{ inputs.github_org }}/${{ inputs.repository_name }}/git/refs" -d '{"ref": "refs/heads/'"${branch_name}"'","sha": "'$(curl -s -H "Authorization: Bearer ${{ inputs.github_token }}" "https://api.github.com/repos/${{ inputs.github_org }}/${{ inputs.repository_name }}/git/refs/heads/${{ inputs.base_repository_branch }}" | jq -r ".object.sha")'"}'         
+           # Create a Commit using the GitHub API
+
+          con_out=$(curl -s -H "Authorization: Bearer ${{ inputs.github_token }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/${{ inputs.github_org }}/${{ inputs.repository_name }}/contents/history.txt")
+          ex_content=$(echo "$con_out" | jq -r '.content' | base64 -d)
+          echo -e "$ex_content \n ${{ env.CONTENT }}" > line.txt 
+          content_2=$(base64 -w 0 line.txt)
+
+          sha=$(curl -s -L -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ inputs.github_token }}" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/${{ inputs.github_org }}/${{ inputs.repository_name }}/contents/history.txt| jq -r '.sha')
+
+          curl -X PUT   -H "Authorization: Bearer ${{ inputs.github_token }}"   -H "Accept: application/vnd.github.v3+json"   "https://api.github.com/repos/${{ inputs.github_org }}/${{ inputs.repository_name }}/contents/history.txt"   -d '{"message": "Approval Request","sha": "'"${sha}"'","content": "'"${content_2}"'","branch": "'"${branch_name}"'"}'
+          echo "branch_name=${branch_name}" >> $GITHUB_OUTPUT
+
+
+  # # # # # # # # Create the PR using the GitHub CLI # # # # # # # # #
+
+
+      - name: Create PR
+        shell: bash
+        id: create_pr
+        run: |
+           gh config set prompt disabled
+
+           gh pr create --title "Approval request ${{ github.run_number }}" --body "Please review and Approve this PR!" --reviewer "${{ inputs.pr_reviewer }}" --base "${{ inputs.base_repository_branch }}" --head "${{ steps.create_br.outputs.branch_name }}" --repo "${{ inputs.github_org }}/${{ inputs.repository_name }}"
+           pr_number=$(gh pr list --base "${{ inputs.base_repository_branch }}" --head "$branch_name" --repo "${{ inputs.github_org }}/${{ inputs.repository_name }}" --json number --limit 1 | jq -r '.[0].number')
+           echo "Created pull request #$pr_number"
+           echo "pr_number=${pr_number}" >> $GITHUB_OUTPUT 
+
+
+ # # # # # # # # # # Wait for the Approval until the PR is approved by SRE # # # # # # # # #
+
+
+      - name: Wait for Approval
+        shell: bash
+        id: wait_for_approval
+        run: |
+          workflow_run_id="${{ github.run_id }}"
+          pr_number="${{ steps.create_pr.outputs.pr_number }}"
+          branch_name="${{ steps.create_br.outputs.branch_name }}"
+
+          while true; do
+            response=$(curl -s "https://api.github.com/repos/${{ inputs.github_org }}/${{ inputs.repository_name }}/pulls/${{ steps.create_pr.outputs.pr_number }}/reviews" -H "Authorization: Bearer ${{ inputs.github_token }}")
+            #response=$(curl -s -L -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ inputs.github_token }}" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${{ inputs.github_org }}/${{ inputs.repository_name }}/issues/${{ steps.create_pr.outputs.pr_number }}/comments" | jq -r '.[-1] | select(.body | contains("approved")) | .body')
+             
+             
+            approved=$(echo "${response}" | jq -r '.[] | select(.state == "APPROVED")')
+            user=$(echo "${response}" | jq -r '.[] | select(.state == "APPROVED")| .user.login')
+
+            
+            if [[ -n "${approved}" ]]; then
+              break
+            fi
+
+            sleep 10
+            ((counter+=10))
+           
+            TIME=${{ inputs.time_limit }}
+
+            if [[ $counter -ge ${{ inputs.time_limit }} ]]; then
+              echo "Timeout reached for Approval . Exiting..."
+              echo "approval_status=not-approved" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          done
+          
+          echo "approval_status=approved" >> $GITHUB_OUTPUT
+          echo "user_status=${user}" >> $GITHUB_OUTPUT
+
+          echo $user_status
+
+          sleep 10
+          
+          # Auto Merge PR post approval
+          
+          curl -X PUT -H "Authorization: Bearer ${{ inputs.github_token }}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/${{ inputs.github_org }}/${{ inputs.repository_name }}/pulls/${pr_number}/merge"
+
+      - name: Run Subsequent Steps
+        shell: bash
+        if: steps.wait_for_approval.outputs.approval_status == 'approved'
+        run: |
+          echo "Subsequent steps can be executed now"
+
