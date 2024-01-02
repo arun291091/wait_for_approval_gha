@@ -37,7 +37,7 @@ Use this action within your GitHub workflow step where you need to wait for some
 
 ```
       - name: Wait_for_approval Action
-        uses: arun291091/wait_for_approval@v1
+        uses: arun291091/wait_for_approval_gha@v1
         with:
           base_repository_branch: <Base branch name>
           github_org: <org name>
