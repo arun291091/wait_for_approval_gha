@@ -1,7 +1,7 @@
 #### Add a wait for Approval stage to your GitHub Action workflow ##############
 # Copyright (c) Arunkumar Krishnakumar
 
-name: 'Wait For Approval'
+name: 'Wait For Approval GHA'
 description: 'Add a wait for Approval stage to your GitHub Action workflow'
 branding:
   icon: 'chevron-up'
