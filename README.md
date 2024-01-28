@@ -42,7 +42,7 @@ Use this action within your GitHub workflow step where you need to wait for some
           base_repository_branch: <Base branch name>
           github_org: <org name>
           repository_name: <repo name>
-          pr_reviewer: <reviewer>
+          pr_reviewer: <reviewer1>,<reviewer2>,<reviewer3>
           time_limit: <time wait for approval in Seconds>
           github_token: <Github auth token>
 ```
@@ -52,7 +52,7 @@ Where
 1. **base_repository_branch** : Should be the default branch name of the specific repository either main or master
 2. **github_org** : The Github organization name
 3. **repository_name**: The name of the repository where you need the dummy PR approval to be.
-4. **pr_reviewer** : PR reviewer can be a team or an individual member whom you would need to Wait for approval.
+4. **pr_reviewer** : PR reviewer can be a team or an individual member whom you would need to Wait for approval. you can add multiple reviewers separated by comma.
 5. **time_limit**: Waiting time in Seconds for the approval
 6. **github_token**: Github Auth token with necessary permissions to create/merge PR, branch . 
 
